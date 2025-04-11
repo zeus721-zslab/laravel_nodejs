@@ -1,0 +1,47 @@
+name: Node.js CI/CD Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: self-hosted
+
+    steps:
+      # 1. 코드 체크아웃: Runner로 GitHub 저장소의 코드를 가져옵니다.
+      - name: Check out repository code
+        uses: actions/checkout@v4 # actions/checkout 액션 사용 (v4는 최신 버전 중 하나)
+
+      # 2. Node.js 환경 설정: Runner에 특정 버전의 Node.js를 설치합니다.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4 # actions/setup-node 액션 사용
+        with:
+          node-version: '18' # !!! 프로젝트에 맞는 Node.js 버전으로 수정하세요 !!! (예: '16', '18', '20')
+          cache: 'npm' # npm 의존성 캐싱을 활성화하여 빌드 속도 향상
+
+      # 3. 의존성 설치: npm ci 명령어로 의존성을 설치합니다.
+      - name: Install dependencies
+        run: npm install # package-lock.json을 사용하여 더 빠르고 일관성 있게 설치 (CI 환경에 권장)
+        # 만약 package-lock.json이 없다면 run: npm install 사용
+
+      # 4. (선택사항) 테스트 실행: 필요하다면 테스트 스크립트를 실행합니다.
+      # - name: Run tests
+      #   run: npm test # package.json에 test 스크립트가 정의되어 있어야 함
+
+      # --- 다음 단계에서 여기에 배포(CD) 관련 Step들을 추가할 예정 ---
+      # 5. 배포 서버 접속 위한 SSH 키 설정: Runner에 SSH 키를 설정합니다.
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      # 6. 배포 스크립트 실행: SSH로 배포 서버에 접속하여 deploy.sh 스크립트를 실행합니다.
+      - name: Deploy to server
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "/home/zslab_duckdns/laravel/html_nodejs/deploy.sh"
+          # !!! deploy.sh 스크립트의 실제 경로가 맞는지 꼭 확인하세요 !!!
