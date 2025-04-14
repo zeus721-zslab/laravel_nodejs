@@ -28,3 +28,5 @@ Thumbs.db
 # Laravel specific
 /storage/*.key
 /public/storage
+
+deploy.sh
