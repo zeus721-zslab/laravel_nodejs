@@ -37,11 +37,11 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key_nodejs
-          chmod 600 ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/deploy_key_nodejs
           ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
 
       # 6. 배포 스크립트 실행: SSH로 배포 서버에 접속하여 deploy.sh 스크립트를 실행합니다.
       - name: Deploy to server
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "/home/zslab_duckdns/laravel/html_nodejs/deploy.sh"
+          ssh -i ~/.ssh/deploy_key_nodejs -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "/home/zslab_duckdns/laravel/html_nodejs/deploy.sh"
           # !!! deploy.sh 스크립트의 실제 경로가 맞는지 꼭 확인하세요 !!!
