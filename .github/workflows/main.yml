@@ -43,5 +43,5 @@ jobs:
       # 6. 배포 스크립트 실행: SSH로 배포 서버에 접속하여 deploy.sh 스크립트를 실행합니다.
       - name: Deploy to server
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "/home/zslab_duckdns/laravel/html_nodejs/deploy.sh"
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "/home/zslab_duckdns/laravel/html_nodejs/deploy.sh"
           # !!! deploy.sh 스크립트의 실제 경로가 맞는지 꼭 확인하세요 !!!
