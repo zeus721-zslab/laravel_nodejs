@@ -1,99 +1,131 @@
-// server.js - Node.js 직접 HTTP/WS 처리 방식..
+// server.js
 require('dotenv').config();
 
-const http = require('http'); // http 모듈 대신 https 사용
+// --- ★ 필요한 모듈들 불러오기 ★ ---
+const http = require('http'); // HTTP 모듈
+const https = require('https'); // HTTPS 모듈
+const fs = require('fs'); // 파일 시스템 모듈 (HTTPS 인증서 읽기용)
 const { Server } = require("socket.io");
 const express = require('express');
-// const cors = require('cors'); // Express cors 미들웨어는 사용 안 함
 
-// 분리된 모듈 가져오기 (원래대로 복구)
+// 분리된 모듈 가져오기
 const redisClient = require('./redisClient');
 const { initializeSocket } = require('./socketHandler');
 const { startRedisListener } = require('./redisListener');
 
 const app = express();
 
-// --- ★ HTTP 서버 생성 ★ ---
-const server = http.createServer(app); // http 서버 대신 https 서버 사용
+let server; // HTTP 또는 HTTPS 서버 인스턴스를 담을 변수
+const serverMode = process.env.SOCKET_SERVER_MODE || 'http'; // .env: SOCKET_SERVER_MODE=https 또는 http (기본값 http)
+const PORT = process.env.PORT || 3001; // .env: PORT=3001 (또는 다른 포트)
 
-// --- CORS 설정 (Socket.IO 옵션 사용 - 함수 방식) ---
+console.log(`[ENV] Server Mode: ${serverMode}, Port: ${PORT}`); // 환경 변수 로깅
+
+if (serverMode === 'https') {
+    // --- ★ HTTPS 서버 생성 ★ ---
+    console.log('[MODE] Attempting to start HTTPS server...');
+    try {
+        // Entrypoint 스크립트가 복사한 인증서 경로 (로그 기반)
+        const privateKeyPath = '/tmp/certs/privkey.pem';
+        const certificatePath = '/tmp/certs/fullchain.pem'; // fullchain 사용 권장
+
+        // 인증서 파일 존재 여부 확인
+        if (fs.existsSync(privateKeyPath) && fs.existsSync(certificatePath)) {
+            const httpsOptions = {
+                key: fs.readFileSync(privateKeyPath),
+                cert: fs.readFileSync(certificatePath)
+                // 필요시 ca: fs.readFileSync('/path/to/ca_bundle.pem') 추가
+            };
+            server = https.createServer(httpsOptions, app); // HTTPS 서버 생성
+            console.log(`[MODE] Node.js HTTPS SocketIO 서버가 포트 ${PORT}에서 시작 준비 중...`);
+        } else {
+            // 인증서 파일 없을 시 오류 처리 및 HTTP로 대체 실행
+            console.error(`[ERROR] HTTPS mode required, but certificate files not found! Paths checked: ${privateKeyPath}, ${certificatePath}`);
+            console.error('[FALLBACK] Starting HTTP server instead.');
+            server = http.createServer(app); // HTTP 서버로 대체
+            console.log(`[MODE] Node.js HTTP SocketIO 서버가 포트 ${PORT}에서 시작 준비 중 (HTTPS fallback)...`);
+        }
+    } catch (err) {
+        // HTTPS 서버 생성 중 다른 오류 발생 시 HTTP로 대체 실행
+        console.error('[ERROR] Failed to create HTTPS server, falling back to HTTP:', err);
+        server = http.createServer(app); // HTTP 서버로 대체
+        console.log(`[MODE] Node.js HTTP SocketIO 서버가 포트 ${PORT}에서 시작 준비 중 (HTTPS error fallback)...`);
+    }
+
+} else {
+    // --- ★ HTTP 서버 생성 (기본) ★ ---
+    console.log('[MODE] Starting HTTP server...');
+    server = http.createServer(app); // HTTP 서버 생성
+    console.log(`[MODE] Node.js HTTP SocketIO 서버가 포트 ${PORT}에서 시작 준비 중...`);
+}
+
+// --- CORS 설정 (Socket.IO 옵션 사용) ---
 const corsOriginString = process.env.CORS_ORIGIN || '';
 const allowedOriginsArray = corsOriginString.split(',').map(origin => origin.trim()).filter(origin => origin);
-console.log("[STG] Allowed CORS Origins Array (for Socket.IO options):", allowedOriginsArray);
+console.log("[CORS] Allowed CORS Origins Array (for Socket.IO options):", allowedOriginsArray);
 
-const io = new Server(server, { // 'server' 변수는 이제 https 서버
+const io = new Server(server, { // 'server' 변수는 http 또는 https 서버 인스턴스
     cors: {
         origin: function (origin, callback) {
-            // console.log(`CORS Check (Socket.IO): Request Origin = ${origin}`); // 필요시 로그 활성화
+            // origin이 허용 목록에 있거나, origin 값이 없는 경우(예: 서버 내부 테스트) 허용
             if (allowedOriginsArray.indexOf(origin) !== -1 || !origin) {
-                callback(null, true); // 허용
+                callback(null, true);
             } else {
-                console.error(`[STG] CORS Check (Socket.IO): Origin ${origin} NOT allowed.`);
-                callback(new Error('Not allowed by CORS')); // 거부
+                console.error(`[CORS] Check (Socket.IO): Origin ${origin} NOT allowed.`);
+                callback(new Error('Not allowed by CORS'));
             }
         },
         methods: ["GET", "POST"],
-        credentials: true // credentials 설정 유지
+        credentials: true
     },
-    transports: ['websocket', 'polling'] // 기본 전송 방식
+    transports: ['websocket', 'polling']
 });
-// --- CORS 설정 끝 ---
 
 
-// --- Socket.IO 이벤트 핸들러 초기화 (원래대로 복구) ---
+// --- Socket.IO 이벤트 핸들러 초기화 ---
 initializeSocket(io);
-// 임시 기본 핸들러는 제거합니다.
-// io.of("/").on("connection", ...);
-// --- Socket.IO 이벤트 핸들러 끝 ---
 
-
-// --- Redis 리스너 시작 (원래대로 복구) ---
+// --- Redis 리스너 시작 ---
 redisClient.on('connect', () => {
-    // console.log('Redis 클라이언트가 연결되었습니다.'); // redisClient.js 에 로그가 있다면 중복될 수 있음
     startRedisListener(redisClient, io);
-    // 다른 리스너 추가 가능
 });
-
 redisClient.on('error', (err) => {
-    console.error('[STG] Staging 서버 파일에서 Redis 연결 오류 감지:', err);
+    console.error('[REDIS] Redis connection error detected in server.js:', err);
 });
-// --- Redis 관련 로직 끝 ---
 
 
 // --- 기본 라우트 및 서버 리슨 ---
 app.get('/', (req, res) => {
-  // 응답 메시지 변경
-  res.send('[STG] Node.js HTTP Socket.IO 서버가 실행 중입니다.');
+    // 현재 실행 모드(HTTP/HTTPS)를 반영하도록 응답 메시지 수정
+    res.send(`[APP] Node.js ${serverMode.toUpperCase()} Socket.IO Server is running.`);
 });
 
-const PORT = process.env.PORT || 3001;
+// !!! 아래 PORT 변수 중복 정의 삭제됨 !!!
 server.listen(PORT, () => {
-    // 로그 메시지 변경
-    console.log(`[STG] Node.js HTTP SocketIO 서버가 포트 ${PORT}에서 시작되었습니다...`);
+    // 현재 실행 모드(HTTP/HTTPS)를 반영하도록 로그 메시지 수정
+    console.log(`[START] Node.js ${serverMode.toUpperCase()} SocketIO Server listening on port ${PORT}`);
 });
-// --- 기본 라우트 및 서버 리슨 끝 ---
 
 
 // --- 그레이스풀 셧다운 ---
 process.on('SIGTERM', () => {
-    console.log('[STG] SIGTERM 신호 수신. 서버를 종료합니다.');
+    console.log('[SYSTEM] SIGTERM signal received. Shutting down gracefully.');
     server.close(() => {
-        console.log('[STG] HTTP 서버가 닫혔습니다.');
+        console.log(`[SYSTEM] ${serverMode.toUpperCase()} server closed.`);
         redisClient.quit(() => {
-            console.log('[STG] Redis 연결이 종료되었습니다.');
+            console.log('[SYSTEM] Redis client connection closed.');
             process.exit(0);
         });
     });
 });
 
 process.on('SIGINT', () => {
-    console.log('[STG] SIGINT 신호 수신 (Ctrl+C). 서버를 종료합니다.');
+    console.log('[SYSTEM] SIGINT signal received (Ctrl+C). Shutting down gracefully.');
     server.close(() => {
-        console.log('[STG] HTTP 서버가 닫혔습니다.');
+        console.log(`[SYSTEM] ${serverMode.toUpperCase()} server closed.`);
         redisClient.quit(() => {
-            console.log('[STG] Redis 연결이 종료되었습니다.');
+            console.log('[SYSTEM] Redis client connection closed.');
             process.exit(0);
         });
     });
 });
-// --- 그레이스풀 셧다운 끝 ---
