@@ -1,4 +1,4 @@
-// server.js - Node.js 직접 HTTP/WS 처리 방식
+// server.js - Node.js 직접 HTTP/WS 처리 방식..
 require('dotenv').config();
 
 const http = require('http'); // http 모듈 대신 https 사용
